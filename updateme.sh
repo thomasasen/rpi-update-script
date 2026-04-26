@@ -1,4 +1,6 @@
-#!/usr/bin/env bash
+from pathlib import Path
+
+script = r'''#!/usr/bin/env bash
 set -Eeuo pipefail
 IFS=$'\n\t'
 
@@ -12,21 +14,21 @@ ASSUME_YES=0
 ALLOW_REMOVALS=0
 AUTO_REBOOT="none"
 RUN_AUTOREMOVE=1
+INSTALL_MISSING="prompt"
 
 ROOT_MIN_MB="${ROOT_MIN_MB:-1024}"
 BOOT_MIN_MB="${BOOT_MIN_MB:-256}"
 LOG_KEEP_DAYS="${LOG_KEEP_DAYS:-30}"
 LOG_KEEP_COUNT="${LOG_KEEP_COUNT:-20}"
-
 LOG_DIR="${LOG_DIR:-$HOME/updaterpi-logs}"
 LOG_FILE="${LOG_DIR}/updaterpi-$(date '+%Y%m%d-%H%M%S').log"
 
-SIM_FILE="$(mktemp)"
-PLAN_FILE="$(mktemp)"
-REMOVALS_FILE="$(mktemp)"
-BOOT_MARKER="$(mktemp)"
-BOOT_CHANGED_FILE="$(mktemp)"
-NEEDRESTART_FILE="$(mktemp)"
+SIM_FILE=""
+PLAN_FILE=""
+REMOVALS_FILE=""
+BOOT_MARKER=""
+BOOT_CHANGED_FILE=""
+NEEDRESTART_FILE=""
 
 HARD_REBOOT=0
 SOFT_REBOOT=0
@@ -40,27 +42,32 @@ Nutzung:
   ./$SCRIPT_NAME [Optionen]
 
 Optionen:
-  --dry-run           Nur simulieren. Es werden keine Pakete installiert.
-  --live              Live-Update ohne Modus-Rueckfrage starten.
-  --yes               Alias fuer --live.
-  --allow-removals    Erlaubt Paketentfernungen durch full-upgrade.
-  --reboot            Automatisch nur bei harten Neustartgruenden rebooten.
-  --reboot-soft       Automatisch auch bei weichen Neustartgruenden rebooten.
-  --no-autoremove     Autoremove ueberspringen.
-  --help              Diese Hilfe anzeigen.
+  --dry-run              Nur simulieren. Es werden keine Pakete installiert.
+  --live                 Live-Update ohne Modus-Rueckfrage starten.
+  --yes                  Alias fuer --live.
+  --allow-removals       Erlaubt Paketentfernungen durch full-upgrade.
+  --reboot               Automatisch nur bei harten Neustartgruenden rebooten.
+  --reboot-soft          Automatisch auch bei weichen Neustartgruenden rebooten.
+  --no-autoremove        Autoremove ueberspringen.
+  --install-missing      Fehlende Tools automatisch installieren.
+  --no-install-missing   Fehlende Tools nicht installieren, sondern abbrechen oder ueberspringen.
+  --help                 Diese Hilfe anzeigen.
 
 Umgebungsvariablen:
-  ROOT_MIN_MB=1024    Mindestfreier Speicher auf / in MB.
-  BOOT_MIN_MB=256     Mindestfreier Speicher auf /boot/firmware oder /boot in MB.
-  LOG_KEEP_DAYS=30    Logs aelter als X Tage loeschen.
-  LOG_KEEP_COUNT=20   Maximal X aktuelle Logs behalten.
+  ROOT_MIN_MB=1024       Mindestfreier Speicher auf / in MB.
+  BOOT_MIN_MB=256        Mindestfreier Speicher auf /boot/firmware oder /boot in MB.
+  LOG_KEEP_DAYS=30       Logs aelter als X Tage loeschen.
+  LOG_KEEP_COUNT=20      Maximal X aktuelle Logs behalten.
+  LOG_DIR=...            Verzeichnis fuer Logdateien.
 USAGE
 }
 
 die() {
     echo
     echo "FEHLER: $*" >&2
-    echo "Logdatei: $LOG_FILE" >&2
+    if [[ -n "${LOG_FILE:-}" ]]; then
+        echo "Logdatei: $LOG_FILE" >&2
+    fi
     exit 1
 }
 
@@ -82,7 +89,12 @@ add_soft_reboot_reason() {
 }
 
 cleanup() {
-    rm -f "$SIM_FILE" "$PLAN_FILE" "$REMOVALS_FILE" "$BOOT_MARKER" "$BOOT_CHANGED_FILE" "$NEEDRESTART_FILE"
+    [[ -n "${SIM_FILE:-}" ]] && rm -f "$SIM_FILE"
+    [[ -n "${PLAN_FILE:-}" ]] && rm -f "$PLAN_FILE"
+    [[ -n "${REMOVALS_FILE:-}" ]] && rm -f "$REMOVALS_FILE"
+    [[ -n "${BOOT_MARKER:-}" ]] && rm -f "$BOOT_MARKER"
+    [[ -n "${BOOT_CHANGED_FILE:-}" ]] && rm -f "$BOOT_CHANGED_FILE"
+    [[ -n "${NEEDRESTART_FILE:-}" ]] && rm -f "$NEEDRESTART_FILE"
 }
 trap cleanup EXIT
 
@@ -119,6 +131,12 @@ parse_args() {
             --no-autoremove)
                 RUN_AUTOREMOVE=0
                 ;;
+            --install-missing)
+                INSTALL_MISSING="yes"
+                ;;
+            --no-install-missing)
+                INSTALL_MISSING="no"
+                ;;
             --help|-h)
                 usage
                 exit 0
@@ -131,6 +149,206 @@ parse_args() {
         esac
         shift
     done
+}
+
+ask_yes_no() {
+    local prompt="$1"
+    local default_answer="${2:-no}"
+    local answer=""
+    local suffix="[j/N]"
+
+    if [[ "$default_answer" == "yes" ]]; then
+        suffix="[J/n]"
+    fi
+
+    if [[ ! -t 0 ]]; then
+        [[ "$default_answer" == "yes" ]]
+        return
+    fi
+
+    read -r -p "$prompt $suffix: " answer
+    answer="${answer,,}"
+
+    if [[ -z "$answer" ]]; then
+        [[ "$default_answer" == "yes" ]]
+        return
+    fi
+
+    case "$answer" in
+        j|ja|y|yes)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+setup_sudo_and_apt() {
+    if ! command -v apt-get >/dev/null 2>&1; then
+        die "apt-get wurde nicht gefunden. Dieses Skript ist fuer APT-basierte Systeme gedacht."
+    fi
+
+    if [[ "$EUID" -eq 0 ]]; then
+        SUDO=()
+    else
+        if ! command -v sudo >/dev/null 2>&1; then
+            die "sudo wurde nicht gefunden und das Skript laeuft nicht als root. Bitte sudo installieren oder als root starten."
+        fi
+        SUDO=(sudo)
+    fi
+
+    APT_GET=("${SUDO[@]}" apt-get
+        -o DPkg::Lock::Timeout=300
+        -o Dpkg::Options::=--force-confdef
+        -o Dpkg::Options::=--force-confold
+    )
+}
+
+unique_packages() {
+    local pkg
+    local seen=" "
+    for pkg in "$@"; do
+        [[ -n "$pkg" ]] || continue
+        if [[ "$seen" != *" $pkg "* ]]; then
+            printf '%s\n' "$pkg"
+            seen+="$pkg "
+        fi
+    done
+}
+
+install_packages() {
+    local reason="$1"
+    shift
+
+    local packages=()
+    mapfile -t packages < <(unique_packages "$@")
+
+    [[ "${#packages[@]}" -gt 0 ]] || return 0
+
+    echo
+    echo "$reason"
+    echo "Zu installierende Pakete: ${packages[*]}"
+
+    "${APT_GET[@]}" update
+    "${APT_GET[@]}" install -y "${packages[@]}"
+}
+
+handle_missing_packages() {
+    local kind="$1"
+    local reason="$2"
+    shift 2
+
+    local packages=("$@")
+    [[ "${#packages[@]}" -gt 0 ]] || return 0
+
+    case "$INSTALL_MISSING" in
+        yes)
+            install_packages "$reason" "${packages[@]}"
+            ;;
+        no)
+            if [[ "$kind" == "required" ]]; then
+                die "Erforderliche Tools fehlen. Fehlende Pakete: ${packages[*]}"
+            fi
+            echo "Optionale Pakete fehlen und werden nicht installiert: ${packages[*]}"
+            ;;
+        prompt)
+            if ask_yes_no "$reason Jetzt installieren?" "no"; then
+                install_packages "$reason" "${packages[@]}"
+            else
+                if [[ "$kind" == "required" ]]; then
+                    die "Erforderliche Tools fehlen und wurden nicht installiert. Fehlende Pakete: ${packages[*]}"
+                fi
+                echo "Optionale Pakete wurden nicht installiert: ${packages[*]}"
+            fi
+            ;;
+    esac
+}
+
+ensure_required_tools() {
+    echo
+    echo "Pruefe benoetigte Tools..."
+
+    local required=(
+        "awk:mawk"
+        "grep:grep"
+        "find:findutils"
+        "sort:coreutils"
+        "tee:coreutils"
+        "df:coreutils"
+        "mktemp:coreutils"
+        "date:coreutils"
+        "basename:coreutils"
+        "cut:coreutils"
+        "sed:sed"
+        "systemctl:systemd"
+        "journalctl:systemd"
+        "dpkg:dpkg"
+        "hostname:hostname"
+    )
+
+    local missing_cmds=()
+    local missing_pkgs=()
+    local item cmd pkg
+
+    for item in "${required[@]}"; do
+        cmd="${item%%:*}"
+        pkg="${item#*:}"
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            missing_cmds+=("$cmd")
+            missing_pkgs+=("$pkg")
+        fi
+    done
+
+    if [[ "${#missing_cmds[@]}" -eq 0 ]]; then
+        echo "Alle benoetigten Tools sind vorhanden."
+        return 0
+    fi
+
+    echo "Fehlende erforderliche Tools: ${missing_cmds[*]}"
+    mapfile -t missing_pkgs < <(unique_packages "${missing_pkgs[@]}")
+    handle_missing_packages "required" "Fehlende erforderliche Tools koennen per APT installiert werden." "${missing_pkgs[@]}"
+
+    local still_missing=()
+    for item in "${required[@]}"; do
+        cmd="${item%%:*}"
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            still_missing+=("$cmd")
+        fi
+    done
+
+    if [[ "${#still_missing[@]}" -gt 0 ]]; then
+        die "Einige erforderliche Tools fehlen weiterhin: ${still_missing[*]}"
+    fi
+
+    echo "Fehlende erforderliche Tools wurden installiert."
+}
+
+ensure_optional_tools() {
+    echo
+    echo "Pruefe optionale Tools..."
+
+    local optional_pkgs=()
+
+    if ! command -v needrestart >/dev/null 2>&1; then
+        echo "Optionales Tool fehlt: needrestart"
+        optional_pkgs+=("needrestart")
+    fi
+
+    if [[ "${#optional_pkgs[@]}" -gt 0 ]]; then
+        handle_missing_packages "optional" "Optionale, empfohlene Tools fehlen. Sie verbessern die Neustart- und Dienstpruefung." "${optional_pkgs[@]}"
+    else
+        echo "Optionale Tools sind vorhanden."
+    fi
+}
+
+create_temp_files() {
+    SIM_FILE="$(mktemp)"
+    PLAN_FILE="$(mktemp)"
+    REMOVALS_FILE="$(mktemp)"
+    BOOT_MARKER="$(mktemp)"
+    BOOT_CHANGED_FILE="$(mktemp)"
+    NEEDRESTART_FILE="$(mktemp)"
 }
 
 rotate_logs() {
@@ -190,20 +408,6 @@ choose_mode() {
     esac
 }
 
-setup_sudo_and_apt() {
-    if [[ "$EUID" -eq 0 ]]; then
-        SUDO=()
-    else
-        SUDO=(sudo)
-    fi
-
-    APT_GET=("${SUDO[@]}" apt-get
-        -o DPkg::Lock::Timeout=300
-        -o Dpkg::Options::=--force-confdef
-        -o Dpkg::Options::=--force-confold
-    )
-}
-
 print_header() {
     echo "########################################"
     echo "Raspberry Pi Update Skript"
@@ -213,6 +417,7 @@ print_header() {
     echo "Kernel aktuell: $(uname -r)"
     echo "Modus: $([[ "$DRY_RUN" -eq 1 ]] && echo 'Dry-Run' || echo 'Live-Update')"
     echo "Auto-Reboot: $AUTO_REBOOT"
+    echo "Fehlende Tools installieren: $INSTALL_MISSING"
     echo "Logdatei: $LOG_FILE"
     echo "########################################"
 }
@@ -647,11 +852,14 @@ print_warning_summary() {
 
 main() {
     parse_args "$@"
+    setup_sudo_and_apt
+    require_sudo
+    ensure_required_tools
+    ensure_optional_tools
+    create_temp_files
     init_logging
     choose_mode
-    setup_sudo_and_apt
     print_header
-    require_sudo
     check_repo_mix
     check_free_space
     apt_update
@@ -684,3 +892,9 @@ main() {
 }
 
 main "$@"
+'''
+
+path = Path("/mnt/data/updaterpi.sh")
+path.write_text(script, encoding="utf-8")
+path.chmod(0o755)
+path
