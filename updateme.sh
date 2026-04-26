@@ -1,8 +1,16 @@
-from pathlib import Path
-
-script = r'''#!/usr/bin/env bash
+#!/usr/bin/env bash
 set -Eeuo pipefail
 IFS=$'\n\t'
+
+# Raspberry Pi Update Script
+#
+# Ziel:
+# - APT-Updates sicher und nachvollziehbar ausführen
+# - zuerst simulieren, dann bewusst live aktualisieren
+# - fehlende Hilfsprogramme auf Rückfrage installieren
+# - Kernel-, Firmware-, EEPROM- und Boot-Änderungen erkennen
+# - harte und weiche Neustartgründe getrennt ausgeben
+# - Logs schreiben und alte Logs aufräumen
 
 export DEBIAN_FRONTEND=noninteractive
 export APT_LISTCHANGES_FRONTEND=none
@@ -10,7 +18,6 @@ export NEEDRESTART_MODE=l
 
 SCRIPT_NAME="$(basename "$0")"
 DRY_RUN=""
-ASSUME_YES=0
 ALLOW_REMOVALS=0
 AUTO_REBOOT="none"
 RUN_AUTOREMOVE=1
@@ -41,26 +48,161 @@ usage() {
 Nutzung:
   ./$SCRIPT_NAME [Optionen]
 
+Ohne Optionen startet eine interaktive Auswahl mit nummerierten Optionen und Presets.
+
 Optionen:
   --dry-run              Nur simulieren. Es werden keine Pakete installiert.
-  --live                 Live-Update ohne Modus-Rueckfrage starten.
-  --yes                  Alias fuer --live.
+  --live                 Live-Update ohne Modus-Rückfrage starten.
+  --yes                  Alias für --live.
   --allow-removals       Erlaubt Paketentfernungen durch full-upgrade.
-  --reboot               Automatisch nur bei harten Neustartgruenden rebooten.
-  --reboot-soft          Automatisch auch bei weichen Neustartgruenden rebooten.
-  --no-autoremove        Autoremove ueberspringen.
+  --reboot               Automatisch nur bei harten Neustartgründen rebooten.
+  --reboot-soft          Automatisch auch bei weichen Neustartgründen rebooten.
+  --no-autoremove        Autoremove überspringen.
   --install-missing      Fehlende Tools automatisch installieren.
-  --no-install-missing   Fehlende Tools nicht installieren, sondern abbrechen oder ueberspringen.
+  --no-install-missing   Fehlende Tools nicht installieren, sondern abbrechen oder überspringen.
   --help                 Diese Hilfe anzeigen.
 
 Umgebungsvariablen:
   ROOT_MIN_MB=1024       Mindestfreier Speicher auf / in MB.
   BOOT_MIN_MB=256        Mindestfreier Speicher auf /boot/firmware oder /boot in MB.
-  LOG_KEEP_DAYS=30       Logs aelter als X Tage loeschen.
+  LOG_KEEP_DAYS=30       Logs älter als X Tage löschen.
   LOG_KEEP_COUNT=20      Maximal X aktuelle Logs behalten.
-  LOG_DIR=...            Verzeichnis fuer Logdateien.
+  LOG_DIR=...            Verzeichnis für Logdateien.
 USAGE
 }
+show_interactive_option_menu() {
+    if [[ ! -t 0 ]]; then
+        DRY_RUN=1
+        echo "Keine Optionen und kein interaktives Terminal erkannt. Sicherheitsmodus: Dry-Run."
+        echo "Für Live-Update explizit mit --live oder --yes starten."
+        return
+    fi
+
+    echo
+    echo "Keine Optionen angegeben."
+    echo "Wähle ein Preset per Buchstabe oder einzelne Optionen per kommagetrennter Nummernliste."
+    echo
+    echo "Presets:"
+    echo "  A = Analyse: Dry-Run, keine Installation, kein Neustart."
+    echo "  B = Standard: Live-Update, fehlende Tools nur auf Rückfrage, kein automatischer Neustart."
+    echo "  C = Wartung: Live-Update, fehlende Tools nur auf Rückfrage, automatischer Neustart bei harten Gründen."
+    echo "  D = Automatisch: Live-Update, fehlende Tools automatisch installieren, automatischer Neustart bei harten Gründen."
+    echo "  E = Kontrolliert: Live-Update, fehlende Tools nicht installieren, Autoremove überspringen, kein automatischer Neustart."
+    echo
+    echo "Einzeloptionen:"
+    echo "  1 = Dry-Run: nur simulieren, keine Pakete installieren."
+    echo "  2 = Live-Update: Pakete wirklich installieren."
+    echo "  3 = Paketentfernungen durch full-upgrade erlauben."
+    echo "  4 = Automatisch rebooten, wenn harte Neustartgründe erkannt werden."
+    echo "  5 = Automatisch auch bei weichen Neustartgründen rebooten."
+    echo "  6 = Autoremove überspringen."
+    echo "  7 = Fehlende Tools automatisch installieren."
+    echo "  8 = Fehlende Tools nicht installieren."
+    echo "  0 = Abbrechen."
+    echo
+    echo "Beispiele:"
+    echo "  A"
+    echo "  B"
+    echo "  2,4,7"
+    echo "  2,3,4,7"
+    echo
+    read -r -p "Auswahl [A]: " selection
+
+    selection="${selection:-A}"
+    selection="${selection//[[:space:]]/}"
+    selection="${selection,,}"
+
+    local entries=()
+    local entry
+    IFS=',' read -r -a entries <<< "$selection"
+
+    for entry in "${entries[@]}"; do
+        case "$entry" in
+            a)
+                DRY_RUN=1
+                ALLOW_REMOVALS=0
+                AUTO_REBOOT="none"
+                RUN_AUTOREMOVE=1
+                INSTALL_MISSING="no"
+                ;;
+            b)
+                DRY_RUN=0
+                ALLOW_REMOVALS=0
+                AUTO_REBOOT="none"
+                RUN_AUTOREMOVE=1
+                INSTALL_MISSING="prompt"
+                ;;
+            c)
+                DRY_RUN=0
+                ALLOW_REMOVALS=0
+                AUTO_REBOOT="hard"
+                RUN_AUTOREMOVE=1
+                INSTALL_MISSING="prompt"
+                ;;
+            d)
+                DRY_RUN=0
+                ALLOW_REMOVALS=0
+                AUTO_REBOOT="hard"
+                RUN_AUTOREMOVE=1
+                INSTALL_MISSING="yes"
+                ;;
+            e)
+                DRY_RUN=0
+                ALLOW_REMOVALS=0
+                AUTO_REBOOT="none"
+                RUN_AUTOREMOVE=0
+                INSTALL_MISSING="no"
+                ;;
+            0|q|quit|exit|abbrechen)
+                echo "Abgebrochen."
+                exit 0
+                ;;
+            1)
+                DRY_RUN=1
+                ;;
+            2)
+                DRY_RUN=0
+                ;;
+            3)
+                ALLOW_REMOVALS=1
+                ;;
+            4)
+                AUTO_REBOOT="hard"
+                ;;
+            5)
+                AUTO_REBOOT="soft"
+                ;;
+            6)
+                RUN_AUTOREMOVE=0
+                ;;
+            7)
+                INSTALL_MISSING="yes"
+                ;;
+            8)
+                INSTALL_MISSING="no"
+                ;;
+            "")
+                ;;
+            *)
+                die "Ungültige Auswahl: '$entry'"
+                ;;
+        esac
+    done
+
+    if [[ -z "$DRY_RUN" ]]; then
+        DRY_RUN=1
+        echo "Kein Modus gewählt. Sicherheitsmodus: Dry-Run."
+    fi
+
+    echo
+    echo "Gewählte Einstellungen:"
+    echo "  Modus: $([[ "$DRY_RUN" -eq 1 ]] && echo 'Dry-Run' || echo 'Live-Update')"
+    echo "  Paketentfernungen erlauben: $([[ "$ALLOW_REMOVALS" -eq 1 ]] && echo 'ja' || echo 'nein')"
+    echo "  Auto-Reboot: $AUTO_REBOOT"
+    echo "  Autoremove: $([[ "$RUN_AUTOREMOVE" -eq 1 ]] && echo 'aktiv' || echo 'übersprungen')"
+    echo "  Fehlende Tools installieren: $INSTALL_MISSING"
+}
+
 
 die() {
     echo
@@ -117,7 +259,6 @@ parse_args() {
                 ;;
             --live|--yes)
                 DRY_RUN=0
-                ASSUME_YES=1
                 ;;
             --allow-removals)
                 ALLOW_REMOVALS=1
@@ -186,14 +327,14 @@ ask_yes_no() {
 
 setup_sudo_and_apt() {
     if ! command -v apt-get >/dev/null 2>&1; then
-        die "apt-get wurde nicht gefunden. Dieses Skript ist fuer APT-basierte Systeme gedacht."
+        die "apt-get wurde nicht gefunden. Dieses Skript ist für APT-basierte Systeme gedacht."
     fi
 
     if [[ "$EUID" -eq 0 ]]; then
         SUDO=()
     else
         if ! command -v sudo >/dev/null 2>&1; then
-            die "sudo wurde nicht gefunden und das Skript laeuft nicht als root. Bitte sudo installieren oder als root starten."
+            die "sudo wurde nicht gefunden und das Skript läuft nicht als root. Bitte sudo installieren oder als root starten."
         fi
         SUDO=(sudo)
     fi
@@ -267,7 +408,7 @@ handle_missing_packages() {
 
 ensure_required_tools() {
     echo
-    echo "Pruefe benoetigte Tools..."
+    echo "Prüfe benötigte Tools..."
 
     local required=(
         "awk:mawk"
@@ -301,13 +442,13 @@ ensure_required_tools() {
     done
 
     if [[ "${#missing_cmds[@]}" -eq 0 ]]; then
-        echo "Alle benoetigten Tools sind vorhanden."
+        echo "Alle benötigten Tools sind vorhanden."
         return 0
     fi
 
     echo "Fehlende erforderliche Tools: ${missing_cmds[*]}"
     mapfile -t missing_pkgs < <(unique_packages "${missing_pkgs[@]}")
-    handle_missing_packages "required" "Fehlende erforderliche Tools koennen per APT installiert werden." "${missing_pkgs[@]}"
+    handle_missing_packages "required" "Fehlende erforderliche Tools können per APT installiert werden." "${missing_pkgs[@]}"
 
     local still_missing=()
     for item in "${required[@]}"; do
@@ -326,7 +467,7 @@ ensure_required_tools() {
 
 ensure_optional_tools() {
     echo
-    echo "Pruefe optionale Tools..."
+    echo "Prüfe optionale Tools..."
 
     local optional_pkgs=()
 
@@ -383,12 +524,12 @@ choose_mode() {
     if [[ ! -t 0 ]]; then
         DRY_RUN=1
         echo "Kein interaktives Terminal erkannt. Sicherheitsmodus: Dry-Run."
-        echo "Fuer Live-Update explizit mit --live oder --yes starten."
+        echo "Für Live-Update explizit mit --live oder --yes starten."
         return
     fi
 
     echo
-    echo "Modus auswaehlen:"
+    echo "Modus auswählen:"
     echo "  1 = Dry-Run. Paketlisten aktualisieren und Upgrade nur simulieren."
     echo "  2 = Live-Update. Pakete wirklich installieren."
     echo
@@ -424,7 +565,13 @@ print_header() {
 
 require_sudo() {
     echo
-    echo "Pruefe sudo Zugriff..."
+    echo "Prüfe sudo Zugriff..."
+
+    if [[ "$EUID" -eq 0 ]]; then
+        echo "Skript läuft bereits als root."
+        return 0
+    fi
+
     "${SUDO[@]}" -v
 }
 
@@ -492,7 +639,7 @@ collect_apt_suites() {
 
 check_repo_mix() {
     echo
-    echo "Pruefe APT Repository Suiten..."
+    echo "Prüfe APT Repository Suiten..."
 
     local os_codename=""
     if [[ -r /etc/os-release ]]; then
@@ -523,7 +670,7 @@ check_repo_mix() {
 
     if [[ "${#base_suites[@]}" -gt 1 ]]; then
         warn "Mehrere Debian/Raspberry-Pi Basis-Suites erkannt: $(printf '%s ' "${!base_suites[@]}")"
-        warn "Das kann gewollt sein, ist aber ein Risiko fuer Abhaengigkeiten. Bei dir waere z. B. trixie plus bookworm auffaellig."
+        warn "Das kann gewollt sein, ist aber ein Risiko für Abhängigkeiten. Bei dir wäre z. B. trixie plus bookworm auffaellig."
     fi
 
     if [[ -n "$os_codename" ]]; then
@@ -534,7 +681,7 @@ check_repo_mix() {
                 "$os_codename")
                     ;;
                 *)
-                    warn "APT Suite '$base' passt nicht zu VERSION_CODENAME='$os_codename'. Bitte Quellen pruefen."
+                    warn "APT Suite '$base' passt nicht zu VERSION_CODENAME='$os_codename'. Bitte Quellen prüfen."
                     ;;
             esac
         done
@@ -555,17 +702,17 @@ check_free_space_path() {
     echo "$label: ${avail_mb} MB frei. Minimum: ${min_mb} MB."
 
     if [[ "$avail_mb" =~ ^[0-9]+$ ]] && (( avail_mb < min_mb )); then
-        die "Zu wenig freier Speicher auf $path. Frei: ${avail_mb} MB, benoetigt mindestens: ${min_mb} MB."
+        die "Zu wenig freier Speicher auf $path. Frei: ${avail_mb} MB, benötigt mindestens: ${min_mb} MB."
     fi
 
     if [[ "$inode_avail" =~ ^[0-9]+$ ]] && (( inode_avail < 1000 )); then
-        die "Zu wenige freie Inodes auf $path. Frei: $inode_avail, benoetigt mindestens: 1000."
+        die "Zu wenige freie Inodes auf $path. Frei: $inode_avail, benötigt mindestens: 1000."
     fi
 }
 
 check_free_space() {
     echo
-    echo "Pruefe freien Speicher..."
+    echo "Prüfe freien Speicher..."
     check_free_space_path "/" "$ROOT_MIN_MB" "Root-Dateisystem"
 
     if [[ -d /boot/firmware ]]; then
@@ -605,7 +752,7 @@ simulate_full_upgrade() {
 
     if [[ -s "$REMOVALS_FILE" ]]; then
         echo
-        warn "full-upgrade wuerde Pakete entfernen:"
+        warn "full-upgrade würde Pakete entfernen:"
         cat "$REMOVALS_FILE"
 
         if [[ "$DRY_RUN" -eq 0 && "$ALLOW_REMOVALS" -ne 1 ]]; then
@@ -626,13 +773,13 @@ detect_reboot_from_plan() {
     fi
 
     if grep -Eiq '^(libc6|libssl[0-9].*|libssl3t64|openssl|openssl-provider.*|openssh-server|openssh-client|openssh-sftp-server|ssh)$' "$PLAN_FILE"; then
-        add_soft_reboot_reason "Zentrale Bibliotheken oder SSH/OpenSSL Pakete sind im Upgrade-Plan enthalten. Dienste koennen danach alte Bibliotheken nutzen."
+        add_soft_reboot_reason "Zentrale Bibliotheken oder SSH/OpenSSL Pakete sind im Upgrade-Plan enthalten. Dienste können danach alte Bibliotheken nutzen."
     fi
 }
 
 run_live_upgrade() {
     echo
-    echo "Setze Boot-Zeitmarker fuer spaetere Aenderungspruefung..."
+    echo "Setze Boot-Zeitmarker für spätere Änderungsprüfung..."
     touch "$BOOT_MARKER"
 
     echo
@@ -651,7 +798,7 @@ run_live_upgrade() {
         echo "Autoremove abgeschlossen."
     else
         echo
-        echo "Autoremove wurde per --no-autoremove uebersprungen."
+        echo "Autoremove wurde per --no-autoremove übersprungen."
     fi
 
     echo
@@ -687,9 +834,9 @@ detect_boot_file_changes() {
     sort -u "$BOOT_CHANGED_FILE" -o "$BOOT_CHANGED_FILE" 2>/dev/null || true
 
     if [[ -s "$BOOT_CHANGED_FILE" ]]; then
-        add_hard_reboot_reason "Boot-, Kernel-, Device-Tree-, Initramfs- oder EEPROM-Dateien wurden waehrend des Updates geaendert."
+        add_hard_reboot_reason "Boot-, Kernel-, Device-Tree-, Initramfs- oder EEPROM-Dateien wurden während des Updates geändert."
         echo
-        echo "Geaenderte Boot-nahe Dateien:"
+        echo "Geänderte Boot-nahe Dateien:"
         cat "$BOOT_CHANGED_FILE"
     fi
 }
@@ -729,10 +876,10 @@ post_checks() {
     local dpkg_audit
     dpkg_audit="$(dpkg --audit || true)"
     if [[ -n "$dpkg_audit" ]]; then
-        warn "dpkg --audit meldet Auffaelligkeiten:"
+        warn "dpkg --audit meldet Auffälligkeiten:"
         echo "$dpkg_audit"
     else
-        echo "Keine dpkg Audit Auffaelligkeiten."
+        echo "Keine dpkg Audit Auffälligkeiten."
     fi
 
     echo
@@ -742,14 +889,14 @@ post_checks() {
     echo
     echo "SSH Status:"
     if systemctl list-unit-files ssh.service >/dev/null 2>&1; then
-        systemctl is-active ssh.service || warn "ssh.service ist nicht aktiv. Falls der Pi headless per SSH genutzt wird, pruefen."
+        systemctl is-active ssh.service || warn "ssh.service ist nicht aktiv. Falls der Pi headless per SSH genutzt wird, prüfen."
         systemctl is-enabled ssh.service || true
     else
         echo "ssh.service nicht gefunden."
     fi
 
     echo
-    echo "Aktuelle Fehler aus diesem Boot, Prioritaet err..alert, letzte 80 Zeilen:"
+    echo "Aktuelle Fehler aus diesem Boot, Priorität err..alert, letzte 80 Zeilen:"
     journalctl -b -p err..alert -n 80 --no-pager || true
 
     echo
@@ -787,7 +934,7 @@ print_reboot_summary() {
             echo "* $reason"
         done
         echo
-        echo "Weich heisst: Ein kompletter Neustart ist sauber und einfach, aber eventuell reicht auch ein Dienstneustart."
+        echo "Weich heißt: Ein kompletter Neustart ist sauber und einfach, aber eventuell reicht auch ein Dienstneustart."
     fi
 
     if [[ -f /run/reboot-required.pkgs ]]; then
@@ -808,7 +955,7 @@ print_reboot_summary() {
         echo "Empfehlung: sudo reboot"
     else
         echo
-        echo "Empfehlung: needrestart Ausgabe pruefen oder sauberheitshalber sudo reboot ausfuehren."
+        echo "Empfehlung: needrestart Ausgabe prüfen oder sauberheitshalber sudo reboot ausführen."
     fi
 }
 
@@ -851,7 +998,14 @@ print_warning_summary() {
 }
 
 main() {
+    local arg_count="$#"
+
     parse_args "$@"
+
+    if [[ "$arg_count" -eq 0 ]]; then
+        show_interactive_option_menu
+    fi
+
     setup_sudo_and_apt
     require_sudo
     ensure_required_tools
@@ -892,9 +1046,3 @@ main() {
 }
 
 main "$@"
-'''
-
-path = Path("/mnt/data/updaterpi.sh")
-path.write_text(script, encoding="utf-8")
-path.chmod(0o755)
-path
