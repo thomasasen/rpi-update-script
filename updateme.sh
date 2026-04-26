@@ -670,7 +670,7 @@ check_repo_mix() {
 
     if [[ "${#base_suites[@]}" -gt 1 ]]; then
         warn "Mehrere Debian/Raspberry-Pi Basis-Suites erkannt: $(printf '%s ' "${!base_suites[@]}")"
-        warn "Das kann gewollt sein, ist aber ein Risiko für Abhängigkeiten. Bei dir wäre z. B. trixie plus bookworm auffaellig."
+        warn "Das kann gewollt sein, ist aber ein Risiko für Abhängigkeiten. Bei dir wäre z. B. trixie plus bookworm auffällig."
     fi
 
     if [[ -n "$os_codename" ]]; then
@@ -695,19 +695,34 @@ check_free_space_path() {
 
     [[ -d "$path" ]] || return 0
 
-    local avail_mb inode_avail
+    local avail_mb fs_type inode_avail
     avail_mb="$(df -Pm "$path" | awk 'NR == 2 {print $4}')"
-    inode_avail="$(df -Pi "$path" | awk 'NR == 2 {print $4}')"
+    fs_type="$(df -PT "$path" | awk 'NR == 2 {print $2}')"
 
-    echo "$label: ${avail_mb} MB frei. Minimum: ${min_mb} MB."
+    echo "$label: ${avail_mb} MB frei. Minimum: ${min_mb} MB. Dateisystem: ${fs_type:-unbekannt}."
 
     if [[ "$avail_mb" =~ ^[0-9]+$ ]] && (( avail_mb < min_mb )); then
         die "Zu wenig freier Speicher auf $path. Frei: ${avail_mb} MB, benötigt mindestens: ${min_mb} MB."
     fi
 
-    if [[ "$inode_avail" =~ ^[0-9]+$ ]] && (( inode_avail < 1000 )); then
-        die "Zu wenige freie Inodes auf $path. Frei: $inode_avail, benötigt mindestens: 1000."
-    fi
+    # FAT, exFAT, NTFS und ähnliche Dateisysteme haben keine klassischen Unix-Inodes.
+    # Besonders /boot/firmware ist auf Raspberry Pi OS häufig vfat. Dort meldet df -i
+    # je nach System 0 freie Inodes. Das ist kein echter Fehler und darf das Update
+    # nicht blockieren.
+    case "${fs_type,,}" in
+        vfat|fat|msdos|exfat|ntfs|fuseblk)
+            echo "$label: Inode-Prüfung für Dateisystem '$fs_type' übersprungen."
+            ;;
+        *)
+            inode_avail="$(df -Pi "$path" | awk 'NR == 2 {print $4}')"
+
+            if [[ "$inode_avail" =~ ^[0-9]+$ ]] && (( inode_avail < 1000 )); then
+                die "Zu wenige freie Inodes auf $path. Frei: $inode_avail, benötigt mindestens: 1000."
+            fi
+
+            echo "$label: ${inode_avail:-unbekannt} freie Inodes."
+            ;;
+    esac
 }
 
 check_free_space() {
