@@ -1,57 +1,57 @@
-# updaterpi.sh
+# rpi-update-script
 
-Safe Raspberry Pi update script for Debian based Raspberry Pi systems.
+Safe update helper for Raspberry Pi OS and other Debian based Raspberry Pi systems.
 
-`updaterpi.sh` updates your system with `apt-get full-upgrade`, checks for risky repository mixes, verifies free disk space, detects reboot requirements more reliably than `/run/reboot-required` alone, and writes a clear log for every run.
+`updateme.sh` updates the system through APT, simulates changes before installing, checks for risky repository mixes, verifies free disk space, handles missing helper tools on request, detects reboot needs more reliably than `/run/reboot-required` alone, and writes a log for every run.
 
-The script is built for small Raspberry Pi servers, headless systems, NAS helpers, media servers, automation nodes and similar setups.
+The script is intentionally conservative. It is meant for small Raspberry Pi servers, headless systems, media servers, NAS helpers, automation nodes and similar setups where a silent broken update is not acceptable.
 
-## Features
+## Key features
 
-- Interactive dry run by default
-- Real update mode with `--live`
-- Uses `apt-get full-upgrade`, which is the right update path for Raspberry Pi OS
-- Simulates upgrades before installing anything
-- Aborts by default if `full-upgrade` wants to remove packages
-- Detects mixed APT suites such as `trixie` plus `bookworm`
-- Checks free disk space on `/` and `/boot/firmware` or `/boot`
-- Detects hard and soft reboot reasons separately
-- Checks for changed boot, kernel, initramfs, firmware and EEPROM files
-- Uses `needrestart` if installed
-- Runs post checks after the update
-- Writes timestamped log files
-- Cleans up old logs automatically
-- Supports optional automatic reboot
+| Feature | What it does |
+|---|---|
+| Interactive safe start | Starts with a dry run prompt unless a mode is given explicitly. |
+| Dry run support | Simulates `apt-get full-upgrade` without installing packages. |
+| Safe live update | Runs `apt-get full-upgrade` only when live mode is selected. |
+| Package removal guard | Aborts if `full-upgrade` wants to remove packages, unless allowed explicitly. |
+| Repository suite check | Warns about mixed APT suites such as `trixie` plus `bookworm`. |
+| Disk space check | Verifies free space on `/` and `/boot/firmware` or `/boot`. |
+| Missing tool handling | Can install missing required or optional tools after confirmation. |
+| Better reboot detection | Checks reboot markers, package plans, boot files, firmware, EEPROM and `needrestart`. |
+| Hard and soft reboot reasons | Separates clear reboot cases from service restart cases. |
+| Post checks | Runs APT consistency checks, `dpkg --audit`, failed systemd units and journal error checks. |
+| Log files | Writes timestamped logs and removes old logs automatically. |
+| Optional auto reboot | Can reboot automatically on hard or soft reboot reasons. |
 
 ## Why this script exists
 
-A simple reboot check like this is not enough:
+A basic reboot check like this is often too weak on Raspberry Pi systems:
 
 ```bash
 test -f /run/reboot-required
 ```
 
-On Raspberry Pi systems, kernel, firmware, EEPROM, boot files or initramfs updates may not always result in a clear reboot marker.
+Kernel, Raspberry Pi firmware, EEPROM, boot files and initramfs updates may require a reboot even when no clear reboot marker is present.
 
-This script checks several signals:
+This script checks several signals instead:
 
 ```text
 /run/reboot-required
 /var/run/reboot-required
-updated kernel packages
-updated firmware packages
-updated raspi-firmware
-updated rpi-eeprom
+planned kernel related package updates
+planned firmware package updates
+planned raspi-firmware updates
+planned rpi-eeprom updates
 changed files in /boot or /boot/firmware
 needrestart kernel status
-needrestart service status
+needrestart service and process status
 ```
 
-That makes the reboot recommendation more accurate.
+The result is a more honest reboot recommendation.
 
 ## Requirements
 
-Target environment:
+Target systems:
 
 ```text
 Raspberry Pi OS
@@ -60,45 +60,58 @@ APT based systems
 systemd based systems
 ```
 
-Required tools:
+Required base components:
 
 ```text
 bash
-sudo
 apt-get
+sudo, unless the script runs as root
+```
+
+The script also uses common tools such as:
+
+```text
 awk
 grep
 find
 sort
 tee
+df
+mktemp
+date
+basename
+cut
+sed
 systemctl
 journalctl
-df
 dpkg
+hostname
 ```
+
+If one of these tools is missing, the script can install the corresponding package after asking.
 
 Optional but recommended:
 
-```bash
-sudo apt-get install needrestart
+```text
+needrestart
 ```
 
-`needrestart` helps detect services and processes that still use old libraries after an update.
+`needrestart` improves detection of services and processes that still use old libraries after an update.
 
 ## Installation
 
 Clone the repository:
 
 ```bash
-git clone https://github.com/<your-user>/<your-repo>.git
-cd <your-repo>
-chmod +x updaterpi.sh
+git clone https://github.com/thomasasen/rpi-update-script.git
+cd rpi-update-script
+chmod +x updateme.sh
 ```
 
-Or copy the script manually and make it executable:
+Run a syntax check before first use:
 
 ```bash
-chmod +x updaterpi.sh
+bash -n updateme.sh
 ```
 
 ## Usage
@@ -106,38 +119,62 @@ chmod +x updaterpi.sh
 ### Interactive mode
 
 ```bash
-./updaterpi.sh
+./updateme.sh
 ```
 
-The script asks at the beginning whether it should run only a dry run or perform the real update.
+The script asks whether it should run as dry run or live update.
 
-Default answer is dry run.
+The safe default is dry run.
 
 ### Dry run
 
 ```bash
-./updaterpi.sh --dry-run
+./updateme.sh --dry-run
 ```
 
-This mode only simulates the upgrade.
+This only updates package lists and simulates the upgrade.
 
 No packages are installed.
 
 ### Live update
 
 ```bash
-./updaterpi.sh --live
+./updateme.sh --live
 ```
 
 Runs the real update without asking for the mode.
 
-### Live update with reboot on hard reboot reasons
+### Install missing tools on request
+
+Default behavior:
 
 ```bash
-./updaterpi.sh --live --reboot
+./updateme.sh
 ```
 
-The system only reboots automatically if a hard reboot reason is detected.
+If tools are missing, the script asks before installing them.
+
+Install missing tools automatically:
+
+```bash
+./updateme.sh --install-missing
+```
+
+Never install missing tools automatically:
+
+```bash
+./updateme.sh --no-install-missing
+```
+
+In non interactive execution, the script does not silently install missing tools unless `--install-missing` is set.
+
+### Live update with automatic reboot on hard reboot reasons
+
+```bash
+./updateme.sh --live --reboot
+```
+
+This reboots only when a hard reboot reason is detected.
 
 Hard reboot reasons include:
 
@@ -151,10 +188,10 @@ firmware package updates
 needrestart reports an outdated running kernel
 ```
 
-### Live update with reboot on soft reboot reasons too
+### Live update with automatic reboot on soft reboot reasons too
 
 ```bash
-./updaterpi.sh --live --reboot-soft
+./updateme.sh --live --reboot-soft
 ```
 
 This also reboots when soft reboot reasons are detected.
@@ -166,45 +203,43 @@ OpenSSL update
 libssl update
 libc update
 OpenSSH update
-services still using old libraries
+services or processes still using old libraries
 ```
 
 ### Allow package removals
 
 ```bash
-./updaterpi.sh --live --allow-removals
+./updateme.sh --live --allow-removals
 ```
 
 By default, the script aborts if `full-upgrade` wants to remove packages.
 
-This is intentional.
-
-Package removals can be correct, but they should never happen silently on a server.
+That is deliberate. Package removals can be valid, but they should not happen unnoticed on a server.
 
 ### Skip autoremove
 
 ```bash
-./updaterpi.sh --live --no-autoremove
+./updateme.sh --live --no-autoremove
 ```
 
-Use this if you want to clean unused packages manually later.
+Use this if you want to inspect and clean unused packages manually.
 
 ## Options
 
 | Option | Description |
 |---|---|
-| `--dry-run` | Only simulate the upgrade. No package changes. |
-| `--live` | Run the real update without asking. |
+| `--dry-run` | Simulate the update. No package changes. |
+| `--live` | Run the real update without asking for the mode. |
 | `--yes` | Alias for `--live`. |
 | `--allow-removals` | Allow package removals during `full-upgrade`. |
 | `--reboot` | Reboot automatically only on hard reboot reasons. |
 | `--reboot-soft` | Reboot automatically on hard or soft reboot reasons. |
 | `--no-autoremove` | Skip `apt-get autoremove`. |
+| `--install-missing` | Install missing required and optional helper tools automatically. |
+| `--no-install-missing` | Do not install missing tools. Required missing tools cause an abort. |
 | `--help` | Show help. |
 
 ## Environment variables
-
-You can override safety thresholds with environment variables.
 
 | Variable | Default | Description |
 |---|---:|---|
@@ -217,7 +252,7 @@ You can override safety thresholds with environment variables.
 Example:
 
 ```bash
-ROOT_MIN_MB=2048 BOOT_MIN_MB=512 ./updaterpi.sh --live
+ROOT_MIN_MB=2048 BOOT_MIN_MB=512 ./updateme.sh --live
 ```
 
 ## Reboot logic
@@ -226,7 +261,7 @@ The script separates reboot reasons into two groups.
 
 ### Hard reboot reasons
 
-A hard reboot reason means a reboot is the right action.
+A hard reboot reason means a reboot is the correct action.
 
 Examples:
 
@@ -248,7 +283,7 @@ sudo reboot
 
 ### Soft reboot reasons
 
-A soft reboot reason means that a full reboot is clean and simple, but selected service restarts may also be enough.
+A soft reboot reason means a reboot is clean and simple, but selected service restarts may be enough.
 
 Examples:
 
@@ -266,11 +301,17 @@ Recommended action:
 sudo reboot
 ```
 
-Or inspect `needrestart` output and restart affected services manually.
+Alternative:
+
+```bash
+sudo needrestart
+```
+
+Then inspect and restart affected services manually.
 
 ## Repository mix warning
 
-The script checks the configured APT suites.
+The script checks configured APT suites.
 
 Example warning:
 
@@ -279,15 +320,15 @@ trixie
 bookworm
 ```
 
-A mixed setup can be valid, but it can also cause dependency problems.
+A mixed setup can be intentional, but it can also cause dependency problems.
 
-If the script warns about mixed suites, inspect your sources:
+Inspect classic `.list` files:
 
 ```bash
 grep -R "^deb " /etc/apt/sources.list /etc/apt/sources.list.d/
 ```
 
-Also check `.sources` files:
+Inspect modern `.sources` files:
 
 ```bash
 grep -R "^Suites:" /etc/apt/sources.list.d/
@@ -295,7 +336,7 @@ grep -R "^Suites:" /etc/apt/sources.list.d/
 
 ## Logs
 
-Every run writes a log file.
+Every run writes a timestamped log.
 
 Default location:
 
@@ -309,7 +350,7 @@ Example:
 ~/updaterpi-logs/updaterpi-20260426-143012.log
 ```
 
-Old logs are cleaned automatically based on:
+Old logs are cleaned automatically according to:
 
 ```text
 LOG_KEEP_DAYS
@@ -318,46 +359,58 @@ LOG_KEEP_COUNT
 
 ## Safety behavior
 
-The script is intentionally conservative.
+The script is conservative by design.
 
-It will abort in these cases:
+It aborts in these cases:
 
 ```text
 not enough disk space
 APT simulation detects package removals without --allow-removals
+required tools are missing and installation was declined
 apt-get check fails
 unexpected command failure
 ```
 
 If the script runs without an interactive terminal and no mode is given, it defaults to dry run.
 
-That prevents accidental unattended live upgrades.
+That prevents accidental unattended live updates.
 
 ## Recommended workflow
 
-For manual use:
+For first use:
 
 ```bash
-./updaterpi.sh --dry-run
-./updaterpi.sh --live
+./updateme.sh --dry-run
 ```
 
-For manual use with reboot only when clearly needed:
+If the output looks clean:
 
 ```bash
-./updaterpi.sh --live --reboot
+./updateme.sh --live
 ```
 
-For cron or systemd timers, start with dry run until the logs look clean:
+For routine manual maintenance:
 
 ```bash
-./updaterpi.sh --dry-run
+./updateme.sh --live --reboot
+```
+
+For systems where you want to decide every reboot yourself:
+
+```bash
+./updateme.sh --live
+```
+
+For scheduled execution, start with dry run until the logs are clean:
+
+```bash
+./updateme.sh --dry-run
 ```
 
 Then switch deliberately to live mode:
 
 ```bash
-./updaterpi.sh --live
+./updateme.sh --live
 ```
 
 ## Do not use rpi-update for normal updates
@@ -366,7 +419,7 @@ This script does not use `rpi-update`.
 
 Normal Raspberry Pi OS maintenance should use APT packages.
 
-`rpi-update` installs newer test firmware and kernel versions and is not meant as a standard update path.
+`rpi-update` installs newer test firmware and kernel versions. It is not the normal update path for stable systems.
 
 ## Example output
 
@@ -375,13 +428,16 @@ Raspberry Pi Update Skript
 Host: midgard
 Kernel aktuell: 6.12.75+rpt-rpi-v8
 Modus: Live-Update
+Auto-Reboot: hard
+Fehlende Tools installieren: prompt
 
+Pruefe benoetigte Tools...
+Pruefe optionale Tools...
 Pruefe APT Repository Suiten...
 Pruefe freien Speicher...
 APT Paketlisten werden aktualisiert...
 Simuliere full-upgrade...
 Full Upgrade startet...
-Autoclean abgeschlossen.
 needrestart Pruefung...
 Post-Checks...
 
@@ -393,8 +449,25 @@ HARTER NEUSTARTGRUND erkannt:
 Empfehlung: sudo reboot
 ```
 
+## Important note for maintainers
+
+The file `updateme.sh` must be a plain shell script and should start with:
+
+```bash
+#!/usr/bin/env bash
+```
+
+It must not contain Python wrapper code such as:
+
+```python
+from pathlib import Path
+script = r'''...
+```
+
+If that text appears in `updateme.sh`, replace the file with the plain shell script content before using it.
+
 ## Disclaimer
 
 Use this script at your own risk.
 
-It is built to be cautious, but it still performs system updates. Always keep backups for important systems.
+It is built to be cautious, but it still performs system updates. Keep backups for important systems.
