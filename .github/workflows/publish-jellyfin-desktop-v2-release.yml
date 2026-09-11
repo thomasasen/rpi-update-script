@@ -1,0 +1,84 @@
+name: Publish Jellyfin Desktop v2.0.0 Windows Release
+
+on:
+  push:
+    branches:
+      - build/jellyfin-desktop-v2.0.0
+    paths:
+      - ".github/workflows/publish-jellyfin-desktop-v2-release.yml"
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: jellyfin-desktop-v2.0.0-windows-x64
+      RELEASE_TITLE: Jellyfin Desktop v2.0.0 - Windows x64
+      BUILD_RUN_ID: "34613615419"
+
+    steps:
+      - name: Checkout release target
+        uses: actions/checkout@v4
+
+      - name: Ensure release does not already exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; refusing to overwrite it."
+            exit 1
+          fi
+
+      - name: Download verified build artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh run download "$BUILD_RUN_ID" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name "JellyfinDesktop-v2.0.0-windows-x64" \
+            --dir dist
+          test -f "dist/JellyfinDesktop-2.0.0-windows-x64.exe"
+
+      - name: Create SHA-256 checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum JellyfinDesktop-2.0.0-windows-x64.exe > JellyfinDesktop-2.0.0-windows-x64.exe.sha256
+          cat JellyfinDesktop-2.0.0-windows-x64.exe.sha256
+
+      - name: Publish GitHub release
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<'EOF'
+          Windows x64 build of Jellyfin Desktop v2.0.0.
+
+          Build provenance:
+          - Upstream repository: jellyfin/jellyfin-desktop
+          - Base tag: v2.0.0
+          - Base commit: 1634d3d263b881dccc62bf278d1289b471ec7af1
+          - Version verified during the build: 2.0.0
+          - Windows build fixes derived from Jellyfin upstream commit 52d506767613e41a889c75e8bbaf00c51a29751b ("Working 2.0.0 build for Windows")
+          - The unrelated software-rendering change from that later commit was not applied.
+          - Build workflow run: 34613615419
+
+          This is an independently compiled Windows artifact, not an official binary published by the Jellyfin project.
+
+          Files:
+          - JellyfinDesktop-2.0.0-windows-x64.exe
+          - JellyfinDesktop-2.0.0-windows-x64.exe.sha256
+          EOF
+
+          gh release create "$TAG" \
+            "dist/JellyfinDesktop-2.0.0-windows-x64.exe" \
+            "dist/JellyfinDesktop-2.0.0-windows-x64.exe.sha256" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "2d450122fab2b6790594e821ca005d4229299e18" \
+            --title "$RELEASE_TITLE" \
+            --notes-file release-notes.md
