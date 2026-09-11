@@ -83,7 +83,7 @@ jobs:
           cd build
           set PATH=%PATH%;C:\Program Files (x86)\WiX Toolset v3.11\bin;%CD%
           lib /def:mpv\mpv.def /out:mpv\libmpv-2.dll.lib /MACHINE:X64
-          cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=output -DCMAKE_MAKE_PROGRAM=ninja.exe -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL -DCMAKE_CXX_FLAGS=/MD -DCMAKE_C_FLAGS=/MD -DQTROOT=%QT_ROOT_DIR% -DMPV_INCLUDE_DIR=mpv/include -DMPV_LIBRARY=mpv/libmpv-2.dll.lib -DUSE_STATIC_MPVQT=ON -DCHECK_FOR_UPDATES=OFF ..
+          cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=output -DCMAKE_MAKE_PROGRAM=ninja.exe -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL -DCMAKE_CXX_FLAGS=/MD -DCMAKE_C_FLAGS=/MD -DQTROOT=%QT_ROOT_DIR% -DMPV_INCLUDE_DIR=mpv/include -DMPV_LIBRARY=mpv/libmpv-2.dll -DUSE_STATIC_MPVQT=ON -DCHECK_FOR_UPDATES=OFF ..
           ninja
           ninja install
           copy /Y ..\vc_redist.x64.exe output\vc_redist.x64.exe
