@@ -1,4 +1,4 @@
-name: Publish Jellyfin Desktop v2.0.0 Windows Release
+name: Publish Jellyfin Desktop v2.0.0 Windows R2 Release
 
 on:
   push:
@@ -16,9 +16,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      TAG: jellyfin-desktop-v2.0.0-windows-x64
-      RELEASE_TITLE: Jellyfin Desktop v2.0.0 - Windows x64
-      BUILD_RUN_ID: "34613615419"
+      TAG: jellyfin-desktop-v2.0.0-windows-x64-r2
+      RELEASE_TITLE: Jellyfin Desktop v2.0.0 - Windows x64 R2 (OpenGL fix)
+      BUILD_RUN_ID: "34616795672"
 
     steps:
       - name: Checkout release target
@@ -40,7 +40,7 @@ jobs:
           mkdir -p dist
           gh run download "$BUILD_RUN_ID" \
             --repo "${GITHUB_REPOSITORY}" \
-            --name "JellyfinDesktop-v2.0.0-windows-x64" \
+            --name "JellyfinDesktop-v2.0.0-windows-x64-r2" \
             --dir dist
           test -f "dist/JellyfinDesktop-2.0.0-windows-x64.exe"
 
@@ -57,7 +57,9 @@ jobs:
         run: |
           set -euo pipefail
           cat > release-notes.md <<'EOF'
-          Windows x64 build of Jellyfin Desktop v2.0.0.
+          Windows x64 R2 build of Jellyfin Desktop v2.0.0.
+
+          This R2 supersedes the first Windows x64 build, which can show a black window on some systems due to the old OpenGL initialization inherited from the v2.0.0 tag.
 
           Build provenance:
           - Upstream repository: jellyfin/jellyfin-desktop
@@ -65,8 +67,9 @@ jobs:
           - Base commit: 1634d3d263b881dccc62bf278d1289b471ec7af1
           - Version verified during the build: 2.0.0
           - Windows build fixes derived from Jellyfin upstream commit 52d506767613e41a889c75e8bbaf00c51a29751b ("Working 2.0.0 build for Windows")
-          - The unrelated software-rendering change from that later commit was not applied.
-          - Build workflow run: 34613615419
+          - OpenGL/black-screen fix from Jellyfin upstream commit 8a5b0d4e4d55e2e85ab8334bf75cbc6fa386b5dc ("Fix OpenGL detect")
+          - This removes the obsolete Qt 5-era AA_UseOpenGLES forcing that can break rendering under Qt 6.
+          - Build workflow run: 34616795672
 
           This is an independently compiled Windows artifact, not an official binary published by the Jellyfin project.
 
@@ -79,6 +82,6 @@ jobs:
             "dist/JellyfinDesktop-2.0.0-windows-x64.exe" \
             "dist/JellyfinDesktop-2.0.0-windows-x64.exe.sha256" \
             --repo "${GITHUB_REPOSITORY}" \
-            --target "2d450122fab2b6790594e821ca005d4229299e18" \
+            --target "1deb5655e8b33fedf7948884ae8cf1091594d1ed" \
             --title "$RELEASE_TITLE" \
             --notes-file release-notes.md
