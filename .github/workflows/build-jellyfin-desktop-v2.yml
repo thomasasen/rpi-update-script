@@ -1,4 +1,4 @@
-name: Build Jellyfin Desktop v2.0.0 Windows x64 R4
+name: Build Jellyfin Desktop v2.0.0 Windows x64 R5
 
 on:
   push:
@@ -109,6 +109,45 @@ jobs:
           git -c user.name="Build Bot" -c user.email="build@localhost" commit -m "Apply Windows QtWebEngine flicker workaround"
           echo "Windows QtWebEngine GPU acceleration is disabled by default; MPV/OpenGL video rendering remains unchanged"
 
+      - name: Apply QtWebEngine disk cache and split WebEngine paths
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          qml = Path("src/ui/webview.qml")
+          qml_text = qml.read_text(encoding="utf-8")
+          qml_old = "profile.httpCacheType: WebEngineProfile.MemoryHttpCache"
+          qml_new = "profile.httpCacheType: WebEngineProfile.DiskHttpCache"
+          if qml_text.count(qml_old) != 1:
+              raise SystemExit(f"Expected exactly one MemoryHttpCache marker, found {qml_text.count(qml_old)}")
+          qml.write_text(qml_text.replace(qml_old, qml_new, 1), encoding="utf-8")
+
+          main = Path("src/main.cpp")
+          main_text = main.read_text(encoding="utf-8")
+          main_old = '''      QString webEngineDir = Paths::dataDir("QtWebEngine");
+                QWebEngineProfile* defaultProfile = QWebEngineProfile::defaultProfile();
+                defaultProfile->setCachePath(webEngineDir);
+                defaultProfile->setPersistentStoragePath(webEngineDir);'''
+          main_new = '''      QWebEngineProfile* defaultProfile = QWebEngineProfile::defaultProfile();
+                defaultProfile->setCachePath(Paths::cacheDir("QtWebEngine"));
+                defaultProfile->setPersistentStoragePath(Paths::dataDir("QtWebEngine"));'''
+          if main_text.count(main_old) != 1:
+              raise SystemExit(f"Expected exactly one legacy WebEngine path block, found {main_text.count(main_old)}")
+          main.write_text(main_text.replace(main_old, main_new, 1), encoding="utf-8")
+          PY
+
+          test "$(tr -d '\r\n' < VERSION)" = "2.0.0"
+          grep -q 'profile.httpCacheType: WebEngineProfile.DiskHttpCache' src/ui/webview.qml
+          ! grep -q 'profile.httpCacheType: WebEngineProfile.MemoryHttpCache' src/ui/webview.qml
+          grep -q 'setCachePath(Paths::cacheDir("QtWebEngine"))' src/main.cpp
+          grep -q 'setPersistentStoragePath(Paths::dataDir("QtWebEngine"))' src/main.cpp
+          git diff --check
+          git add src/ui/webview.qml src/main.cpp
+          git -c user.name="Build Bot" -c user.email="build@localhost" commit -m "Use QtWebEngine disk cache with separate cache path"
+          echo "QtWebEngine now uses DiskHttpCache; persistent WebEngine storage stays in the existing data path"
+
       - name: Verify retained v2.0.0 fixes
         shell: bash
         run: |
@@ -118,8 +157,12 @@ jobs:
           grep -q "Using native desktop OpenGL" src/player/OpenGLDetect.cpp
           grep -q '"--disable-gpu"' src/main.cpp
           grep -q '#ifdef Q_OS_WIN32' src/main.cpp
+          grep -q 'profile.httpCacheType: WebEngineProfile.DiskHttpCache' src/ui/webview.qml
+          ! grep -q 'profile.httpCacheType: WebEngineProfile.MemoryHttpCache' src/ui/webview.qml
+          grep -q 'setCachePath(Paths::cacheDir("QtWebEngine"))' src/main.cpp
+          grep -q 'setPersistentStoragePath(Paths::dataDir("QtWebEngine"))' src/main.cpp
           test -z "$(git diff --name-only --diff-filter=U)"
-          echo "Verified Jellyfin v2.0.0 and retained Windows/OpenGL/QtWebEngine fixes"
+          echo "Verified Jellyfin v2.0.0 and retained Windows/OpenGL/QtWebEngine fixes plus R5 disk-cache paths"
 
       - name: Install Qt 6
         uses: jurplel/install-qt-action@v4
@@ -181,7 +224,7 @@ jobs:
       - name: Upload Windows x64 installer
         uses: actions/upload-artifact@v4
         with:
-          name: JellyfinDesktop-v2.0.0-windows-x64-r4
+          name: JellyfinDesktop-v2.0.0-windows-x64-r5
           path: ${{ github.workspace }}/build/JellyfinDesktop-*.exe
           if-no-files-found: error
           retention-days: 7
