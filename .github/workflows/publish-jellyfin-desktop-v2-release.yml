@@ -82,6 +82,5 @@ jobs:
             "dist/JellyfinDesktop-2.0.0-windows-x64.exe" \
             "dist/JellyfinDesktop-2.0.0-windows-x64.exe.sha256" \
             --repo "${GITHUB_REPOSITORY}" \
-            --target "1deb5655e8b33fedf7948884ae8cf1091594d1ed" \
             --title "$RELEASE_TITLE" \
             --notes-file release-notes.md
