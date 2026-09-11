@@ -1,4 +1,4 @@
-name: Build Jellyfin Desktop v2.0.0 Windows x64
+name: Build Jellyfin Desktop v2.0.0 Windows x64 R2
 
 on:
   push:
@@ -49,7 +49,30 @@ jobs:
           test -z "$(git diff --name-only --diff-filter=U)"
           test "$(tr -d '\r\n' < VERSION)" = "2.0.0"
           git diff --cached --check
-          echo "Applied Jellyfin's Windows v2.0.0 build fix; excluded only the unrelated software-rendering main.cpp hunk"
+          git -c user.name="Build Bot" -c user.email="build@localhost" commit -m "Apply Jellyfin Windows v2.0.0 build fix"
+          echo "Applied Jellyfin's Windows v2.0.0 build fix"
+
+      - name: Apply Jellyfin upstream OpenGL black-screen fix
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git fetch origin 8a5b0d4e4d55e2e85ab8334bf75cbc6fa386b5dc
+          rc=0
+          git -c user.name="Build Bot" -c user.email="build@localhost" cherry-pick --no-commit 8a5b0d4e4d55e2e85ab8334bf75cbc6fa386b5dc || rc=$?
+          if [ "$rc" -ne 0 ]; then
+            conflicts="$(git diff --name-only --diff-filter=U)"
+            test "$conflicts" = "src/main.cpp"
+            git checkout --theirs -- src/main.cpp
+            git add src/main.cpp
+            git cherry-pick --quit
+          fi
+          test -z "$(git diff --name-only --diff-filter=U)"
+          test "$(tr -d '\r\n' < VERSION)" = "2.0.0"
+          ! grep -q "AA_UseOpenGLES" src/main.cpp
+          grep -q "Using native desktop OpenGL" src/player/OpenGLDetect.cpp
+          git diff --cached --check
+          git -c user.name="Build Bot" -c user.email="build@localhost" commit -m "Apply Jellyfin OpenGL black-screen fix"
+          echo "Applied official Jellyfin commit 8a5b0d4: Fix OpenGL detect"
 
       - name: Install Qt 6
         uses: jurplel/install-qt-action@v4
@@ -98,7 +121,7 @@ jobs:
       - name: Upload Windows x64 installer
         uses: actions/upload-artifact@v4
         with:
-          name: JellyfinDesktop-v2.0.0-windows-x64
+          name: JellyfinDesktop-v2.0.0-windows-x64-r2
           path: ${{ github.workspace }}/build/JellyfinDesktop-*.exe
           if-no-files-found: error
           retention-days: 7
