@@ -1,4 +1,4 @@
-name: Publish Jellyfin Desktop v2.0.0 Windows R3 Release
+name: Publish Jellyfin Desktop v2.0.0 Windows R4 Release
 
 on:
   push:
@@ -16,9 +16,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      TAG: jellyfin-desktop-v2.0.0-windows-x64-r3
-      RELEASE_TITLE: Jellyfin Desktop v2.0.0 - Windows x64 R3 (QtWebEngine flicker workaround)
-      BUILD_RUN_ID: "34638629387"
+      TAG: jellyfin-desktop-v2.0.0-windows-x64-r4
+      RELEASE_TITLE: Jellyfin Desktop v2.0.0 - Windows x64 R4 (Qt 6.9.3)
+      BUILD_RUN_ID: "34649843255"
 
     steps:
       - name: Checkout release target
@@ -40,7 +40,7 @@ jobs:
           mkdir -p dist
           gh run download "$BUILD_RUN_ID" \
             --repo "${GITHUB_REPOSITORY}" \
-            --name "JellyfinDesktop-v2.0.0-windows-x64-r3" \
+            --name "JellyfinDesktop-v2.0.0-windows-x64-r4" \
             --dir dist
           test -f "dist/JellyfinDesktop-2.0.0-windows-x64.exe"
 
@@ -51,28 +51,32 @@ jobs:
           cd dist
           sha256sum JellyfinDesktop-2.0.0-windows-x64.exe > JellyfinDesktop-2.0.0-windows-x64.exe.sha256
           cat JellyfinDesktop-2.0.0-windows-x64.exe.sha256
+          INSTALLER_SHA256="$(cut -d' ' -f1 JellyfinDesktop-2.0.0-windows-x64.exe.sha256)"
+          echo "INSTALLER_SHA256=$INSTALLER_SHA256" >> "$GITHUB_ENV"
 
       - name: Publish GitHub release
         shell: bash
         run: |
           set -euo pipefail
-          cat > release-notes.md <<'EOF'
-          Windows x64 R3 compatibility build of Jellyfin Desktop v2.0.0.
+          cat > release-notes.md <<EOF
+          Windows x64 R4 compatibility build of Jellyfin Desktop v2.0.0.
 
-          R3 includes the Windows/OpenGL corrections from R2 and additionally disables GPU acceleration only for QtWebEngine on Windows. This targets intermittent UI flickering observed on Intel UHD Graphics 620, where launching R2 with Jellyfin Desktop's existing --disable-gpu option made the flicker disappear.
-
-          The workaround does not disable MPV/OpenGL video rendering or force Jellyfin video playback to software decoding. It changes the Chromium/QtWebEngine UI rendering path only.
+          R4 keeps the exact Jellyfin Desktop v2.0.0 source base and all compatibility fixes from R2/R3. The only additional functional change in R4 is the Qt toolchain update from 6.8.0 to 6.9.3.
 
           Build provenance:
           - Upstream repository: jellyfin/jellyfin-desktop
           - Base tag: v2.0.0
           - Base commit: 1634d3d263b881dccc62bf278d1289b471ec7af1
           - Version verified during the build: 2.0.0
-          - Windows build fixes derived from Jellyfin upstream commit 52d506767613e41a889c75e8bbaf00c51a29751b ("Working 2.0.0 build for Windows")
+          - Windows build fix from Jellyfin upstream commit 52d506767613e41a889c75e8bbaf00c51a29751b ("Working 2.0.0 build for Windows")
           - OpenGL/black-screen fix from Jellyfin upstream commit 8a5b0d4e4d55e2e85ab8334bf75cbc6fa386b5dc ("Fix OpenGL detect")
-          - R3 compatibility change: on Windows, QtWebEngine receives --disable-gpu by default; the existing MPV/OpenGL path is unchanged.
-          - Build workflow run: 34638629387
-          - Build artifact digest: sha256:6cafad38934175f368e505e1b0e4094afe11b7c4633b6839667376a7744e022f
+          - R3 compatibility fix retained: on Windows, QtWebEngine receives --disable-gpu by default; the existing MPV/OpenGL video path remains unchanged.
+          - R4 change: Qt 6.8.0 -> Qt 6.9.3, using win64_msvc2022_64 with qtwebengine, qtwebchannel, and qtpositioning.
+          - Qt version verified in the build log via qmake: 6.9.3
+          - No libmpv update.
+          - No additional feature backports.
+          - Build workflow run: 34649843255
+          - Installer SHA-256: $INSTALLER_SHA256
 
           This is an independently compiled Windows artifact, not an official binary published by the Jellyfin project.
 
@@ -80,7 +84,6 @@ jobs:
           - JellyfinDesktop-2.0.0-windows-x64.exe
           - JellyfinDesktop-2.0.0-windows-x64.exe.sha256
           EOF
-
           gh release create "$TAG" \
             "dist/JellyfinDesktop-2.0.0-windows-x64.exe" \
             "dist/JellyfinDesktop-2.0.0-windows-x64.exe.sha256" \
