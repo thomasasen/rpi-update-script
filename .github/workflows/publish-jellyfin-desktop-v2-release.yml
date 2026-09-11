@@ -1,4 +1,4 @@
-name: Publish Jellyfin Desktop v2.0.0 Windows R4 Release
+name: Publish Jellyfin Desktop v2.0.0 Windows R5 Release
 
 on:
   push:
@@ -16,9 +16,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      TAG: jellyfin-desktop-v2.0.0-windows-x64-r4
-      RELEASE_TITLE: Jellyfin Desktop v2.0.0 - Windows x64 R4 (Qt 6.9.3)
-      BUILD_RUN_ID: "34649843255"
+      TAG: jellyfin-desktop-v2.0.0-windows-x64-r5
+      RELEASE_TITLE: Jellyfin Desktop v2.0.0 - Windows x64 R5 (QtWebEngine disk cache)
+      BUILD_RUN_ID: "34651189752"
 
     steps:
       - name: Checkout release target
@@ -40,7 +40,7 @@ jobs:
           mkdir -p dist
           gh run download "$BUILD_RUN_ID" \
             --repo "${GITHUB_REPOSITORY}" \
-            --name "JellyfinDesktop-v2.0.0-windows-x64-r4" \
+            --name "JellyfinDesktop-v2.0.0-windows-x64-r5" \
             --dir dist
           test -f "dist/JellyfinDesktop-2.0.0-windows-x64.exe"
 
@@ -59,9 +59,9 @@ jobs:
         run: |
           set -euo pipefail
           cat > release-notes.md <<EOF
-          Windows x64 R4 compatibility build of Jellyfin Desktop v2.0.0.
+          Windows x64 R5 compatibility build of Jellyfin Desktop v2.0.0.
 
-          R4 keeps the exact Jellyfin Desktop v2.0.0 source base and all compatibility fixes from R2/R3. The only additional functional change in R4 is the Qt toolchain update from 6.8.0 to 6.9.3.
+          R5 keeps the exact Jellyfin Desktop v2.0.0 source base and all Windows/OpenGL/QtWebEngine compatibility fixes from the previous revisions. The only additional functional change in R5 is the conservative QtWebEngine disk-cache backport and separation of cache from persistent WebEngine storage.
 
           Build provenance:
           - Upstream repository: jellyfin/jellyfin-desktop
@@ -71,11 +71,17 @@ jobs:
           - Windows build fix from Jellyfin upstream commit 52d506767613e41a889c75e8bbaf00c51a29751b ("Working 2.0.0 build for Windows")
           - OpenGL/black-screen fix from Jellyfin upstream commit 8a5b0d4e4d55e2e85ab8334bf75cbc6fa386b5dc ("Fix OpenGL detect")
           - R3 compatibility fix retained: on Windows, QtWebEngine receives --disable-gpu by default; the existing MPV/OpenGL video path remains unchanged.
-          - R4 change: Qt 6.8.0 -> Qt 6.9.3, using win64_msvc2022_64 with qtwebengine, qtwebchannel, and qtpositioning.
+          - R4 Qt toolchain retained: Qt 6.9.3, win64_msvc2022_64, with qtwebengine, qtwebchannel, and qtpositioning.
           - Qt version verified in the build log via qmake: 6.9.3
+          - R5 upstream basis: 065037270134d2769c92f58ebf2882638a0e9d21 ("Use disk HTTP cache instead of memory cache")
+          - R5 upstream basis: 47d055a929ee8633a4b7c6a150d4e17847104fa0 ("Use separate cache and data paths for WebEngine profile")
+          - R5 change: QtWebEngine uses DiskHttpCache instead of MemoryHttpCache.
+          - R5 change: HTTP cache uses Paths::cacheDir("QtWebEngine"), while persistent WebEngine storage remains at Paths::dataDir("QtWebEngine").
+          - Existing persistent WebEngine storage is not migrated or deleted; its data path is retained.
+          - Expected practical effect: reusable WebUI resources can remain cached across restarts while persistent browser data stays separate from disposable cache data.
           - No libmpv update.
           - No additional feature backports.
-          - Build workflow run: 34649843255
+          - Build workflow run: 34651189752
           - Installer SHA-256: $INSTALLER_SHA256
 
           This is an independently compiled Windows artifact, not an official binary published by the Jellyfin project.
