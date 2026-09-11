@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   build-win64:
-    runs-on: windows-latest
+    runs-on: windows-2022
 
     steps:
       - name: Checkout Jellyfin Desktop v2.0.0
@@ -36,7 +36,7 @@ jobs:
         uses: jurplel/install-qt-action@v4
         with:
           version: "6.8.0"
-          arch: "win64_msvc2019_64"
+          arch: "win64_msvc2022_64"
           modules: "qtwebengine"
 
       - name: Install dependencies
@@ -44,7 +44,7 @@ jobs:
         run: |
           mkdir build
           curl -L https://aka.ms/vs/17/release/vc_redist.x64.exe > vc_redist.x64.exe
-          sed -i 's#C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\BuildTools\\VC\\Redist\\MSVC\\v142\\vcredist_x64.exe#'"$(readlink -f vc_redist.x64.exe | sed 's#/[a-z]/#&#' >/dev/null; readlink -f vc_redist.x64.exe | sed 's#^/\([a-z]\)/#\1:\\\\#' | tr '/' '\\' | sed 's/\\/\\\\/g')#g" bundle/win/Bundle.wxs
+          sed -i 's#C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\BuildTools\\VC\\Redist\\MSVC\\v142\\vcredist_x64.exe#'"$(readlink -f vc_redist.x64.exe | sed 's#/\([a-z]\)/#\1:\\#g' | tr '/' '\\' | sed 's/\\/\\\\/g')#g" bundle/win/Bundle.wxs
           curl -L https://github.com/ninja-build/ninja/releases/download/v1.10.2/ninja-win.zip > ninja.zip
           unzip ninja.zip
           mv ninja.exe build/
