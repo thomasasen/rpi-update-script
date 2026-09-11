@@ -37,7 +37,7 @@ jobs:
         with:
           version: "6.8.0"
           arch: "win64_msvc2022_64"
-          modules: "qtwebengine"
+          modules: "qtwebengine qtwebchannel"
 
       - name: Install dependencies
         shell: bash
@@ -65,7 +65,7 @@ jobs:
           cd build
           set PATH=%PATH%;C:\Program Files (x86)\WiX Toolset v3.11\bin;%CD%
           lib /def:mpv\mpv.def /out:mpv\libmpv-2.dll.lib /MACHINE:X64
-          cmake -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX=output -DCMAKE_MAKE_PROGRAM=ninja.exe -DQTROOT=%Qt6_DIR% -DMPV_INCLUDE_DIR=mpv/include -DMPV_LIBRARY=mpv/libmpv-2.dll.lib -DUSE_STATIC_MPVQT=ON -DCHECK_FOR_UPDATES=ON ..
+          cmake -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX=output -DCMAKE_MAKE_PROGRAM=ninja.exe -DQTROOT=%QT_ROOT_DIR% -DMPV_INCLUDE_DIR=mpv/include -DMPV_LIBRARY=mpv/libmpv-2.dll.lib -DUSE_STATIC_MPVQT=ON -DCHECK_FOR_UPDATES=ON ..
           ninja
           ninja windows_package
 
