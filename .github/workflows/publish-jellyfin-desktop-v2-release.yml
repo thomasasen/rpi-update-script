@@ -1,4 +1,4 @@
-name: Publish Jellyfin Desktop v2.0.0 Windows R2 Release
+name: Publish Jellyfin Desktop v2.0.0 Windows R3 Release
 
 on:
   push:
@@ -16,9 +16,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      TAG: jellyfin-desktop-v2.0.0-windows-x64-r2
-      RELEASE_TITLE: Jellyfin Desktop v2.0.0 - Windows x64 R2 (OpenGL fix)
-      BUILD_RUN_ID: "34616795672"
+      TAG: jellyfin-desktop-v2.0.0-windows-x64-r3
+      RELEASE_TITLE: Jellyfin Desktop v2.0.0 - Windows x64 R3 (QtWebEngine flicker workaround)
+      BUILD_RUN_ID: "34638629387"
 
     steps:
       - name: Checkout release target
@@ -40,7 +40,7 @@ jobs:
           mkdir -p dist
           gh run download "$BUILD_RUN_ID" \
             --repo "${GITHUB_REPOSITORY}" \
-            --name "JellyfinDesktop-v2.0.0-windows-x64-r2" \
+            --name "JellyfinDesktop-v2.0.0-windows-x64-r3" \
             --dir dist
           test -f "dist/JellyfinDesktop-2.0.0-windows-x64.exe"
 
@@ -57,9 +57,11 @@ jobs:
         run: |
           set -euo pipefail
           cat > release-notes.md <<'EOF'
-          Windows x64 R2 build of Jellyfin Desktop v2.0.0.
+          Windows x64 R3 compatibility build of Jellyfin Desktop v2.0.0.
 
-          This R2 supersedes the first Windows x64 build, which can show a black window on some systems due to the old OpenGL initialization inherited from the v2.0.0 tag.
+          R3 includes the Windows/OpenGL corrections from R2 and additionally disables GPU acceleration only for QtWebEngine on Windows. This targets intermittent UI flickering observed on Intel UHD Graphics 620, where launching R2 with Jellyfin Desktop's existing --disable-gpu option made the flicker disappear.
+
+          The workaround does not disable MPV/OpenGL video rendering or force Jellyfin video playback to software decoding. It changes the Chromium/QtWebEngine UI rendering path only.
 
           Build provenance:
           - Upstream repository: jellyfin/jellyfin-desktop
@@ -68,8 +70,9 @@ jobs:
           - Version verified during the build: 2.0.0
           - Windows build fixes derived from Jellyfin upstream commit 52d506767613e41a889c75e8bbaf00c51a29751b ("Working 2.0.0 build for Windows")
           - OpenGL/black-screen fix from Jellyfin upstream commit 8a5b0d4e4d55e2e85ab8334bf75cbc6fa386b5dc ("Fix OpenGL detect")
-          - This removes the obsolete Qt 5-era AA_UseOpenGLES forcing that can break rendering under Qt 6.
-          - Build workflow run: 34616795672
+          - R3 compatibility change: on Windows, QtWebEngine receives --disable-gpu by default; the existing MPV/OpenGL path is unchanged.
+          - Build workflow run: 34638629387
+          - Build artifact digest: sha256:6cafad38934175f368e505e1b0e4094afe11b7c4633b6839667376a7744e022f
 
           This is an independently compiled Windows artifact, not an official binary published by the Jellyfin project.
 
