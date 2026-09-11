@@ -37,10 +37,19 @@ jobs:
         run: |
           set -euxo pipefail
           git fetch origin 52d506767613e41a889c75e8bbaf00c51a29751b
-          git -c user.name="Build Bot" -c user.email="build@localhost" cherry-pick --no-commit 52d506767613e41a889c75e8bbaf00c51a29751b
+          rc=0
+          git -c user.name="Build Bot" -c user.email="build@localhost" cherry-pick --no-commit 52d506767613e41a889c75e8bbaf00c51a29751b || rc=$?
+          if [ "$rc" -ne 0 ]; then
+            conflicts="$(git diff --name-only --diff-filter=U)"
+            test "$conflicts" = "src/main.cpp"
+            git checkout --ours -- src/main.cpp
+            git add src/main.cpp
+            git cherry-pick --quit
+          fi
+          test -z "$(git diff --name-only --diff-filter=U)"
           test "$(tr -d '\r\n' < VERSION)" = "2.0.0"
-          git diff --check
-          echo "Applied official Jellyfin commit 52d5067: Working 2.0.0 build for Windows"
+          git diff --cached --check
+          echo "Applied Jellyfin's Windows v2.0.0 build fix; excluded only the unrelated software-rendering main.cpp hunk"
 
       - name: Install Qt 6
         uses: jurplel/install-qt-action@v4
