@@ -127,12 +127,12 @@ jobs:
           main = Path("src/main.cpp")
           main_text = main.read_text(encoding="utf-8")
           main_old = '''      QString webEngineDir = Paths::dataDir("QtWebEngine");
-                QWebEngineProfile* defaultProfile = QWebEngineProfile::defaultProfile();
-                defaultProfile->setCachePath(webEngineDir);
-                defaultProfile->setPersistentStoragePath(webEngineDir);'''
+      QWebEngineProfile* defaultProfile = QWebEngineProfile::defaultProfile();
+      defaultProfile->setCachePath(webEngineDir);
+      defaultProfile->setPersistentStoragePath(webEngineDir);'''
           main_new = '''      QWebEngineProfile* defaultProfile = QWebEngineProfile::defaultProfile();
-                defaultProfile->setCachePath(Paths::cacheDir("QtWebEngine"));
-                defaultProfile->setPersistentStoragePath(Paths::dataDir("QtWebEngine"));'''
+      defaultProfile->setCachePath(Paths::cacheDir("QtWebEngine"));
+      defaultProfile->setPersistentStoragePath(Paths::dataDir("QtWebEngine"));'''
           if main_text.count(main_old) != 1:
               raise SystemExit(f"Expected exactly one legacy WebEngine path block, found {main_text.count(main_old)}")
           main.write_text(main_text.replace(main_old, main_new, 1), encoding="utf-8")
