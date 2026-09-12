@@ -41,6 +41,26 @@ jobs:
             exit 1
           fi
 
+      - name: Pin release tag to exact branch commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG_API="repos/${GITHUB_REPOSITORY}/git/ref/tags/$TAG"
+          EXISTING_SHA="$(gh api "$TAG_API" --jq '.object.sha' 2>/dev/null || true)"
+
+          if [ -n "$EXISTING_SHA" ]; then
+            test "$EXISTING_SHA" = "${GITHUB_SHA}"
+            echo "Existing tag $TAG already points to ${GITHUB_SHA}"
+          else
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f ref="refs/tags/$TAG" \
+              -f sha="${GITHUB_SHA}" >/dev/null
+          fi
+
+          ACTUAL_SHA="$(gh api "$TAG_API" --jq '.object.sha')"
+          test "$ACTUAL_SHA" = "${GITHUB_SHA}"
+          echo "Verified tag $TAG -> $ACTUAL_SHA"
+
       - name: Download verified build artifact
         shell: bash
         run: |
@@ -102,6 +122,5 @@ jobs:
             "dist/JellyfinDesktop-2.0.0-windows-x64.exe" \
             "dist/JellyfinDesktop-2.0.0-windows-x64.exe.sha256" \
             --repo "${GITHUB_REPOSITORY}" \
-            --target "${GITHUB_SHA}" \
             --title "$RELEASE_TITLE" \
             --notes-file release-notes.md
