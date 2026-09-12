@@ -24,6 +24,14 @@ jobs:
       - name: Checkout release target
         uses: actions/checkout@v4
 
+      - name: Verify release target provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "build/jellyfin-desktop-v2.0.0"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          echo "Release tag will target branch commit ${GITHUB_SHA}"
+
       - name: Ensure release does not already exist
         shell: bash
         run: |
@@ -94,5 +102,6 @@ jobs:
             "dist/JellyfinDesktop-2.0.0-windows-x64.exe" \
             "dist/JellyfinDesktop-2.0.0-windows-x64.exe.sha256" \
             --repo "${GITHUB_REPOSITORY}" \
+            --target "${GITHUB_SHA}" \
             --title "$RELEASE_TITLE" \
             --notes-file release-notes.md
