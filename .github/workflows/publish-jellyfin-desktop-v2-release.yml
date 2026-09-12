@@ -19,6 +19,7 @@ jobs:
       TAG: jellyfin-desktop-v2.0.0-windows-x64-r5
       RELEASE_TITLE: Jellyfin Desktop v2.0.0 - Windows x64 R5 (QtWebEngine disk cache)
       BUILD_RUN_ID: "34651189752"
+      RELEASE_TOKEN: ${{ secrets.RELEASE_WORKFLOW_TOKEN }}
 
     steps:
       - name: Checkout release target
@@ -41,8 +42,20 @@ jobs:
             exit 1
           fi
 
+      - name: Require workflow-capable release token
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${RELEASE_TOKEN:-}" ]; then
+            echo "::error::Repository secret RELEASE_WORKFLOW_TOKEN is required to tag a commit that contains workflow changes."
+            echo "::error::Use a fine-grained PAT with Contents: Read and write and Workflows: Read and write for this repository."
+            exit 1
+          fi
+
       - name: Pin release tag to exact branch commit
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_WORKFLOW_TOKEN }}
         run: |
           set -euo pipefail
           TAG_API="repos/${GITHUB_REPOSITORY}/git/ref/tags/$TAG"
@@ -84,6 +97,8 @@ jobs:
 
       - name: Publish GitHub release
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_WORKFLOW_TOKEN }}
         run: |
           set -euo pipefail
           cat > release-notes.md <<EOF
