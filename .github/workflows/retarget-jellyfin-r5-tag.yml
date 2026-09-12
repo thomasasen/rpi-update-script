@@ -1,0 +1,43 @@
+name: Retarget Jellyfin R5 release tag
+
+on:
+  push:
+    branches:
+      - build/jellyfin-desktop-v2.0.0
+    paths:
+      - ".github/workflows/retarget-jellyfin-r5-tag.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  retarget:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: jellyfin-desktop-v2.0.0-windows-x64-r5
+      TARGET_SHA: c925203426dbc1a4fd47adf1bc68084789111406
+      EXPECTED_OLD_SHA: 26d46ad8c8953bfa518af13bdaa61e12e7d17465
+
+    steps:
+      - name: Verify current tag and retarget R5
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG_API="repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}"
+          CURRENT_SHA="$(gh api "$TAG_API" --jq '.object.sha')"
+
+          if [ "$CURRENT_SHA" = "$TARGET_SHA" ]; then
+            echo "Tag already points to intended R5 release commit: $TARGET_SHA"
+            exit 0
+          fi
+
+          test "$CURRENT_SHA" = "$EXPECTED_OLD_SHA"
+
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" \
+            -f sha="$TARGET_SHA" \
+            -F force=true >/dev/null
+
+          ACTUAL_SHA="$(gh api "$TAG_API" --jq '.object.sha')"
+          test "$ACTUAL_SHA" = "$TARGET_SHA"
+          echo "Retargeted $TAG: $CURRENT_SHA -> $ACTUAL_SHA"
