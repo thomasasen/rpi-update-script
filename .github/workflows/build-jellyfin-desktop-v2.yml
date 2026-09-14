@@ -8,8 +8,13 @@ on:
       - ".github/workflows/build-jellyfin-desktop-v2.yml"
   workflow_dispatch:
 
+concurrency:
+  group: jellyfin-desktop-v2-windows-build
+  cancel-in-progress: false
+
 permissions:
   contents: read
+  actions: write
 
 jobs:
   build-win64:
@@ -225,10 +230,39 @@ jobs:
           Get-ChildItem -Path build -Filter "JellyfinDesktop-*.exe" | Format-Table Name,Length,LastWriteTime
           if (-not (Get-ChildItem -Path build -Filter "JellyfinDesktop-*.exe")) { throw "No installer produced" }
 
+      - name: Remove older Jellyfin test artifacts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prefix = 'JellyfinDesktop-v2.0.0-windows-x64';
+            const artifacts = await github.paginate(
+              github.rest.actions.listArtifactsForRepo,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                per_page: 100
+              }
+            );
+
+            const stale = artifacts.filter(
+              artifact => !artifact.expired && artifact.name.startsWith(prefix)
+            );
+
+            for (const artifact of stale) {
+              await github.rest.actions.deleteArtifact({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                artifact_id: artifact.id
+              });
+              core.info(`Deleted older test artifact ${artifact.name} (${artifact.id})`);
+            }
+
+            core.info(`Removed ${stale.length} older Jellyfin test artifact(s).`);
+
       - name: Upload Windows x64 installer
         uses: actions/upload-artifact@v4
         with:
           name: JellyfinDesktop-v2.0.0-windows-x64-r5
           path: ${{ github.workspace }}/build/JellyfinDesktop-*.exe
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 1
