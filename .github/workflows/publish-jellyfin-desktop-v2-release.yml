@@ -8,7 +8,7 @@ on:
       - ".github/workflows/publish-jellyfin-desktop-v2-release.yml"
 
 permissions:
-  actions: read
+  actions: write
   contents: write
 
 jobs:
@@ -33,16 +33,20 @@ jobs:
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
           echo "Release tag will target branch commit ${GITHUB_SHA}"
 
-      - name: Ensure release does not already exist
+      - name: Check whether release already exists
+        id: release-state
         shell: bash
         run: |
           set -euo pipefail
           if gh release view "$TAG" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            echo "Release $TAG already exists; refusing to overwrite it."
-            exit 1
+            echo "Release $TAG already exists; it will not be overwritten."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Require workflow-capable release token
+        if: steps.release-state.outputs.exists != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -53,6 +57,7 @@ jobs:
           fi
 
       - name: Pin release tag to exact branch commit
+        if: steps.release-state.outputs.exists != 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.RELEASE_WORKFLOW_TOKEN }}
@@ -75,6 +80,7 @@ jobs:
           echo "Verified tag $TAG -> $ACTUAL_SHA"
 
       - name: Download verified build artifact
+        if: steps.release-state.outputs.exists != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -86,6 +92,7 @@ jobs:
           test -f "dist/JellyfinDesktop-2.0.0-windows-x64.exe"
 
       - name: Create SHA-256 checksum
+        if: steps.release-state.outputs.exists != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -96,6 +103,7 @@ jobs:
           echo "INSTALLER_SHA256=$INSTALLER_SHA256" >> "$GITHUB_ENV"
 
       - name: Publish GitHub release
+        if: steps.release-state.outputs.exists != 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.RELEASE_WORKFLOW_TOKEN }}
@@ -139,3 +147,29 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --title "$RELEASE_TITLE" \
             --notes-file release-notes.md
+
+      - name: Verify durable release and delete source Actions artifact
+        if: ${{ !cancelled() }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          release_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}")"
+          installer_count="$(jq '[.assets[] | select((.name | ascii_downcase | endswith(".exe")) and (.size > 150000000))] | length' <<<"$release_json")"
+          if [ "$installer_count" -lt 1 ]; then
+            echo "::error::Release $TAG does not contain a durable installer asset larger than 150 MB."
+            exit 1
+          fi
+
+          artifact_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BUILD_RUN_ID}/artifacts?per_page=100")"
+          artifact_id="$(jq -r '.artifacts[] | select(.name == "JellyfinDesktop-v2.0.0-windows-x64-r5") | .id' <<<"$artifact_json" | head -n 1)"
+
+          if [ -z "$artifact_id" ]; then
+            echo "Source Actions artifact is already absent; nothing to delete."
+            exit 0
+          fi
+
+          gh api --method DELETE "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}"
+          echo "Deleted source Actions artifact $artifact_id after verifying durable release $TAG."
