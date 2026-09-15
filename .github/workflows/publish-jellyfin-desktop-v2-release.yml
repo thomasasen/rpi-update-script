@@ -18,7 +18,6 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       TAG: jellyfin-desktop-v2.0.0-windows-x64-r5
       RELEASE_TITLE: Jellyfin Desktop v2.0.0 - Windows x64 R5 (QtWebEngine disk cache)
-      BUILD_RUN_ID: "34651189752"
       RELEASE_TOKEN: ${{ secrets.RELEASE_WORKFLOW_TOKEN }}
 
     steps:
@@ -33,6 +32,21 @@ jobs:
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
           echo "Release tag will target branch commit ${GITHUB_SHA}"
 
+      - name: Resolve latest successful R5 build run
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUILD_RUN_ID="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs?branch=build/jellyfin-desktop-v2.0.0&status=completed&per_page=100" \
+            --jq '.workflow_runs[] | select(.name == "Build Jellyfin Desktop v2.0.0 Windows x64 R5" and .conclusion == "success") | .id' \
+            | head -n 1)"
+          test -n "$BUILD_RUN_ID"
+
+          artifact_count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BUILD_RUN_ID}/artifacts?per_page=100" \
+            --jq '[.artifacts[] | select(.name == "JellyfinDesktop-v2.0.0-windows-x64-r5" and (.expired | not))] | length')"
+          test "$artifact_count" -eq 1
+
+          echo "BUILD_RUN_ID=$BUILD_RUN_ID" >> "$GITHUB_ENV"
+          echo "Resolved latest successful build run: $BUILD_RUN_ID"
       - name: Check whether release already exists
         id: release-state
         shell: bash
@@ -132,7 +146,7 @@ jobs:
           - Expected practical effect: reusable WebUI resources can remain cached across restarts while persistent browser data stays separate from disposable cache data.
           - No libmpv update.
           - No additional feature backports.
-          - Build workflow run: 34651189752
+          - Build workflow run: $BUILD_RUN_ID
           - Installer SHA-256: $INSTALLER_SHA256
 
           This is an independently compiled Windows artifact, not an official binary published by the Jellyfin project.
